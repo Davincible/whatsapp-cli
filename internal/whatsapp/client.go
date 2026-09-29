@@ -27,6 +27,11 @@ type Client struct {
 	BaseDir      string
 	SyncComplete chan struct{} // Signals when history sync is complete
 
+	// ConnectFailed receives the server's refusal when the login handshake is
+	// rejected. Buffered and sent non-blocking, so a command that is not
+	// listening never wedges whatsmeow's event goroutine.
+	ConnectFailed chan ConnectFailure
+
 	// OnMessage, when set, is called for every real-time message after it has
 	// been stored. It runs on whatsmeow's event goroutine, so keep it quick.
 	OnMessage func(store.Message)
@@ -35,6 +40,8 @@ type Client struct {
 	// recording a voice note, paused). Same goroutine rules as OnMessage.
 	OnActivity func(Activity)
 
+	connectFailMu     sync.Mutex
+	connectFailure    *ConnectFailure
 	syncCompleteMu    sync.Mutex
 	syncCompleteTimer *time.Timer
 	backfillMu        sync.Mutex
@@ -100,11 +107,12 @@ func New(db *store.DB, baseDir string, verbose bool, logger *slog.Logger) (*Clie
 	}
 
 	c := &Client{
-		WA:           client,
-		Store:        db,
-		Logger:       logger,
-		BaseDir:      baseDir,
-		SyncComplete: make(chan struct{}, 1),
+		WA:            client,
+		Store:         db,
+		Logger:        logger,
+		BaseDir:       baseDir,
+		SyncComplete:  make(chan struct{}, 1),
+		ConnectFailed: make(chan ConnectFailure, 1),
 	}
 	c.registerHandlers()
 
@@ -124,6 +132,17 @@ func (c *Client) IsConnected() bool {
 // IsLoggedIn returns true if logged in to WhatsApp.
 func (c *Client) IsLoggedIn() bool {
 	return c.WA.IsLoggedIn()
+}
+
+// LastConnectFailure returns the refusal this client has seen, if any. Commands
+// that do not select on ConnectFailed can ask after the fact.
+func (c *Client) LastConnectFailure() (ConnectFailure, bool) {
+	c.connectFailMu.Lock()
+	defer c.connectFailMu.Unlock()
+	if c.connectFailure == nil {
+		return ConnectFailure{}, false
+	}
+	return *c.connectFailure, true
 }
 
 // WaitForLogin blocks until the server has authenticated this session, or the

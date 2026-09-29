@@ -39,8 +39,12 @@ func (c *Client) registerHandlers() {
 			c.handleChatPresence(v)
 		case *events.Connected:
 			c.Logger.Info("connected to WhatsApp")
-		case *events.LoggedOut:
-			c.Logger.Warn("logged out of WhatsApp")
+		}
+
+		// Login refusals arrive as several different event types, so they are
+		// matched separately rather than as cases above. See connectfail.go.
+		if failure, ok := connectFailureFromEvent(evt); ok {
+			c.publishConnectFailure(failure)
 		}
 	})
 }
@@ -90,4 +94,21 @@ func (c *Client) ConnectWithQR(ctx context.Context) error {
 // Connect connects to WhatsApp without QR (requires existing session).
 func (c *Client) Connect() error {
 	return c.WA.Connect()
+}
+
+// publishConnectFailure records a refusal from the server and publishes it, so a
+// waiting command can fail immediately with the real reason instead of sitting
+// out the full auto-sync timeout and then blaming the store.
+func (c *Client) publishConnectFailure(failure ConnectFailure) {
+	c.connectFailMu.Lock()
+	c.connectFailure = &failure
+	c.connectFailMu.Unlock()
+
+	c.Logger.Error("connection refused by WhatsApp",
+		"reason", failure.Message, "code", int(failure.Reason))
+
+	select {
+	case c.ConnectFailed <- failure:
+	default:
+	}
 }

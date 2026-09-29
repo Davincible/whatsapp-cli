@@ -27,6 +27,20 @@ deps: ## Sync dependencies
 	go mod tidy
 	go mod download
 
+upgrade: ## Fix "Client outdated (405)": bump whatsmeow, verify, install
+	@echo "==> current client version"
+	@go run ./internal/tools/waversion 2>/dev/null || true
+	go get go.mau.fi/whatsmeow@latest
+	go mod tidy
+	@echo "==> new client version"
+	@go run ./internal/tools/waversion
+	CGO_ENABLED=1 go build -tags sqlite_fts5 -o $(BUILD_DIR)/$(BINARY) $(CMD_DIR)
+	CGO_ENABLED=1 go test -tags sqlite_fts5 ./...
+	@mkdir -p $(HOME)/.local/bin
+	cp $(BUILD_DIR)/$(BINARY) $(HOME)/.local/bin/$(BINARY)
+	@echo "==> installed to $(HOME)/.local/bin/$(BINARY)"
+	$(HOME)/.local/bin/$(BINARY) doctor --connect
+
 ##@ Testing/Linting
 
 can-release: lint test ## Run all CI checks (lint + test)

@@ -6,9 +6,17 @@ This file provides guidance to AI coding agents when working with code in this r
 
 whatsapp-cli provides WhatsApp access from your terminal. Machine-readable output (JSON, JSONL, CSV, TSV, human tables).
 
+## If a command fails to connect
+
+`Client outdated (405)` means WhatsApp expired the client version whatsmeow
+hardcodes. It recurs every few months, it is nobody's fault, and the fix is
+`make upgrade`. Read `docs/connection-failures.md` before debugging anything
+else — in particular before suspecting the session, the pairing or upstream.
+
 ## Development Commands
 
 ```bash
+make upgrade                        # Fix "Client outdated (405)": bump, verify, install
 make build                          # Build binary (requires CGO)
 make run CMD="chats --limit 5"      # Run CLI command
 make test                           # Run all tests

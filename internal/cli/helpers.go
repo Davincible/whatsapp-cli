@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -30,6 +31,9 @@ func WithDB(fn func(*store.DB) error) error {
 
 	// Auto-sync if needed
 	if err := maybeAutoSync(db); err != nil {
+		if fatal := fatalSyncError(err); fatal != nil {
+			return fatal
+		}
 		fmt.Fprintf(os.Stderr, "Auto-sync warning: %v\n", err)
 	}
 
@@ -66,8 +70,30 @@ func WithConnection(fn func(*store.DB, *whatsapp.Client) error) error {
 
 	// Auto-sync if needed (using existing connection)
 	if err := maybeAutoSyncWithClient(client, db); err != nil {
+		if fatal := fatalSyncError(err); fatal != nil {
+			return fatal
+		}
 		fmt.Fprintf(os.Stderr, "Auto-sync warning: %v\n", err)
 	}
 
 	return fn(db, client)
+}
+
+// fatalSyncError returns a non-nil error when a failed sync must stop the
+// command rather than degrade into a stale read.
+//
+// The bar is deliberately narrow: only a refusal the server will keep repeating
+// until something changes on this machine. A slow or unreachable network stays a
+// warning, because the stored rows are still the best answer available and the
+// warning says so. But an outdated client or an unlinked device will never
+// recover on its own, and printing rows under a warning nobody reads is how a
+// silently disconnected tool gets used to decide what to say to people.
+//
+// --no-auto-sync remains the way to read the store deliberately as-is.
+func fatalSyncError(err error) error {
+	var failure whatsapp.ConnectFailure
+	if !errors.As(err, &failure) || !failure.Permanent() {
+		return nil
+	}
+	return fmt.Errorf("%w\n\nto read the local store anyway, re-run with --no-auto-sync", failure)
 }

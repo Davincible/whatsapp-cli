@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expires the version whatsmeow hardcodes, so the pinned May build eventually stopped being
   accepted. Bumping whatsmeow moves it to `2.3000.1048620361`. The existing pairing survives, so
   no re-scan is needed
+- A refused login is reported as itself instead of decaying into a stale read. WhatsApp's
+  refusals were invisible to this process, so every read fell through the 30-second auto-sync
+  timeout, printed `Sync timeout: the store may be behind` and exited **0** with whatever the
+  local database already held. The true cause was on stderr one line above, then contradicted by
+  the summary under it. A permanent refusal — outdated client, unlinked device, ban, dead session
+  token — now fails in about five seconds with the reason, the rejected client version and the
+  exact command that fixes it, exits non-zero, and writes nothing to stdout. Transient trouble is
+  still a warning, and `--no-auto-sync` still reads the store deliberately
+- `doctor` reports the WhatsApp client version this build sends, so the number that WhatsApp
+  expires is visible before it starts being rejected
 - `auth status`, `doctor --connect` and the context command report `logged_in` truthfully. They
   read `IsLoggedIn()` in the microseconds after `Connect()` returned, but `Connect` only opens the
   websocket and the login handshake finishes asynchronously, so all three always printed

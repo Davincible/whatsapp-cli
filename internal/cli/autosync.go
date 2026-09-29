@@ -125,10 +125,23 @@ func maybeAutoSyncWithClient(client *whatsapp.Client, db *store.DB) error {
 }
 
 // performQuickSync waits for sync events with a timeout.
+//
+// It also selects on ConnectFailed. Before that, a server-side refusal — an
+// outdated client, an unlinked device, an expired token — was indistinguishable
+// from a slow sync: the login died instantly, nothing here noticed, and 30
+// seconds later the command printed "the store may be behind" and exited 0 with
+// whatever rows it already had. The true cause was on stderr, one line above,
+// and then contradicted by the summary. Reporting the refusal is the fix.
 func performQuickSync(client *whatsapp.Client, db *store.DB) error {
 	select {
 	case <-client.SyncComplete:
 		fmt.Fprintln(os.Stderr, "Sync complete.")
+	case failure := <-client.ConnectFailed:
+		if failure.Permanent() {
+			return failure
+		}
+		fmt.Fprintf(os.Stderr, "Sync skipped: %v\n", failure)
+		return nil
 	case <-time.After(autoSyncTimeout):
 		// Do not record a sync time here. A sync that timed out fetched an unknown
 		// amount, and writing the clock forward on it is how a failed sync used to

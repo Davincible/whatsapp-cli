@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	waStore "go.mau.fi/whatsmeow/store"
+
 	"github.com/eddmann/whatsapp-cli/internal/store"
 	"github.com/eddmann/whatsapp-cli/internal/whatsapp"
 )
@@ -164,6 +166,17 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	checks = append(checks, map[string]any{
 		"name": "Authenticated",
 		"ok":   authenticated,
+	})
+
+	// The client version this build reports to WhatsApp. WhatsApp expires it
+	// server-side every few months, at which point every command fails with
+	// "Client outdated (405)". Surfacing it here means the number is visible
+	// before it starts being rejected, and quotable when it is.
+	checks = append(checks, map[string]any{
+		"name":           "WhatsApp client version",
+		"client_version": waStore.GetWAVersion().String(),
+		"ok":             true,
+		"note":           "if commands fail with 405, run: make upgrade",
 	})
 
 	// Optional: test connection
