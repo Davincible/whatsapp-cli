@@ -174,6 +174,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		if db, err := store.Open(GetMessagesDBPath()); err == nil {
 			if client, err := whatsapp.New(db, GetStoreDir(), IsVerbose(), nil); err == nil {
 				if err := client.Connect(); err == nil {
+					client.WaitForLogin(loginWait)
 					connected = client.IsConnected()
 					loggedIn = client.IsLoggedIn()
 					client.Disconnect()

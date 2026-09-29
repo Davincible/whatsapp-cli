@@ -53,6 +53,7 @@ func runContext(cmd *cobra.Command, args []string) error {
 
 	if client.IsAuthenticated() {
 		if err := client.Connect(); err == nil {
+			client.WaitForLogin(loginWait)
 			status.Connected = client.IsConnected()
 			status.LoggedIn = client.IsLoggedIn()
 

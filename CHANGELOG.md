@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Connect again after WhatsApp started rejecting the client as outdated. Every command failed at
+  the handshake with `Client outdated (405)` on client version `2.3000.1040098269`; WhatsApp
+  expires the version whatsmeow hardcodes, so the pinned May build eventually stopped being
+  accepted. Bumping whatsmeow moves it to `2.3000.1048620361`. The existing pairing survives, so
+  no re-scan is needed
+- `auth status`, `doctor --connect` and the context command report `logged_in` truthfully. They
+  read `IsLoggedIn()` in the microseconds after `Connect()` returned, but `Connect` only opens the
+  websocket and the login handshake finishes asynchronously, so all three always printed
+  `logged_in: false`. That is the exact reading you would use to check whether the client is
+  working, and it said the same thing whether the connection was healthy or rejected outright
 - Send documents with their real mime type and filename. PDFs and Office files went out as
   `application/octet-stream` with no `FileName`, so recipients saw an unnamed generic file that
   often would not open

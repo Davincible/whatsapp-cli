@@ -3,10 +3,17 @@ package cli
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/eddmann/whatsapp-cli/internal/store"
 	"github.com/eddmann/whatsapp-cli/internal/whatsapp"
 )
+
+// loginWait is how long the status-reporting commands wait for the login
+// handshake to finish after Connect returns. Without it they read IsLoggedIn
+// before the server has answered and always report false, which made a working
+// client look identical to one WhatsApp had rejected as outdated.
+const loginWait = 10 * time.Second
 
 // WithDB opens the database and runs the provided function.
 // Syncs from WhatsApp first, unless --no-auto-sync was passed. See autosync.go.

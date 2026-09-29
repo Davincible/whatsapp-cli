@@ -126,6 +126,14 @@ func (c *Client) IsLoggedIn() bool {
 	return c.WA.IsLoggedIn()
 }
 
+// WaitForLogin blocks until the server has authenticated this session, or the
+// timeout expires. Connect only opens the websocket; the login handshake
+// completes asynchronously, so IsLoggedIn is still false the moment Connect
+// returns. Any caller that reports login state needs to wait for it first.
+func (c *Client) WaitForLogin(timeout time.Duration) bool {
+	return c.WA.WaitForConnection(timeout)
+}
+
 // GetDeviceID returns the device ID if authenticated.
 func (c *Client) GetDeviceID() (user string, device uint16) {
 	if c.WA.Store.ID == nil {
