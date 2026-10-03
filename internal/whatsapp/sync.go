@@ -17,9 +17,9 @@ func (c *Client) handleMessage(msg *events.Message) {
 	chatJID := msg.Info.Chat.String()
 	sender := msg.Info.Sender.User
 	content := extractTextContent(msg.Message)
-	mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := extractMediaInfo(msg.Message)
+	media := extractMediaInfo(msg.Message)
 
-	if content == "" && mediaType == "" {
+	if content == "" && media.MediaType == "" {
 		return
 	}
 
@@ -48,9 +48,10 @@ func (c *Client) handleMessage(msg *events.Message) {
 	}
 
 	if _, err := c.Store.Messages.Exec(`INSERT OR REPLACE INTO messages
-		(id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_type, filename, url, media_key, file_sha256, file_enc_sha256, file_length)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		msg.Info.ID, chatJID, sender, senderName, content, msg.Info.Timestamp, msg.Info.IsFromMe, mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength,
+		(id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_type, filename, url, direct_path, media_key, file_sha256, file_enc_sha256, file_length)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		msg.Info.ID, chatJID, sender, senderName, content, msg.Info.Timestamp, msg.Info.IsFromMe,
+		media.MediaType, media.Filename, media.URL, media.DirectPath, media.MediaKey, media.FileSHA256, media.FileEncSHA256, media.FileLength,
 	); err != nil {
 		c.Logger.Warn("failed to store message", "id", msg.Info.ID, "chat_jid", chatJID, "err", err)
 		return
@@ -65,8 +66,8 @@ func (c *Client) handleMessage(msg *events.Message) {
 			Content:    nonEmpty(content),
 			Timestamp:  msg.Info.Timestamp,
 			IsFromMe:   msg.Info.IsFromMe,
-			MediaType:  nonEmpty(mediaType),
-			Filename:   nonEmpty(filename),
+			MediaType:  nonEmpty(media.MediaType),
+			Filename:   nonEmpty(media.Filename),
 			ChatName:   nonEmpty(name),
 		})
 	}
@@ -132,12 +133,12 @@ func (c *Client) handleHistorySync(hs *events.HistorySync) HistorySyncResult {
 				text = extractTextContent(m.Message.Message)
 			}
 
-			mt, fn, u, mk, sha, enc, fl := "", "", "", ([]byte)(nil), ([]byte)(nil), ([]byte)(nil), uint64(0)
+			var media mediaInfo
 			if m.Message.Message != nil {
-				mt, fn, u, mk, sha, enc, fl = extractMediaInfo(m.Message.Message)
+				media = extractMediaInfo(m.Message.Message)
 			}
 
-			if text == "" && mt == "" {
+			if text == "" && media.MediaType == "" {
 				continue
 			}
 
@@ -201,8 +202,10 @@ func (c *Client) handleHistorySync(hs *events.HistorySync) HistorySyncResult {
 			}
 
 			if _, err := c.Store.Messages.Exec(`INSERT OR REPLACE INTO messages
-				(id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_type, filename, url, media_key, file_sha256, file_enc_sha256, file_length)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, chatJID, snd, senderName, text, t, fromMe, mt, fn, u, mk, sha, enc, fl); err != nil {
+				(id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_type, filename, url, direct_path, media_key, file_sha256, file_enc_sha256, file_length)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				id, chatJID, snd, senderName, text, t, fromMe,
+				media.MediaType, media.Filename, media.URL, media.DirectPath, media.MediaKey, media.FileSHA256, media.FileEncSHA256, media.FileLength); err != nil {
 				c.Logger.Warn("history sync: failed to store message", "id", id, "chat_jid", chatJID, "err", err)
 				continue
 			}

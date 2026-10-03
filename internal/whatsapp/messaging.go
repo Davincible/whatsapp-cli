@@ -307,25 +307,68 @@ func (c *Client) SendReaction(chatJID, messageID, emoji string, remove bool) (*S
 	}, nil
 }
 
+// uniqueMediaFilename disambiguates an output name that more than one message
+// in the chat claims, by appending a short message-ID discriminator.
+//
+// Stored filenames come from the sync clock rather than from the message, so a
+// history sync names every audio it writes in the same second identically. Ten
+// voice notes received overnight shared four names. Without this, each download
+// overwrites the previous one at the same path and still reports success, which
+// loses media silently — the worst way to lose it.
+//
+// A name is left alone only when the store positively says it is unique. If the
+// count cannot be read, the discriminator is added: an uglier name is a far
+// cheaper mistake than a destroyed file.
+func (c *Client) uniqueMediaFilename(messageID, chatJID, filename string) string {
+	var shared int
+	err := c.Store.Messages.QueryRow(
+		`SELECT COUNT(*) FROM messages WHERE chat_jid = ? AND filename = ?`,
+		chatJID, filename,
+	).Scan(&shared)
+	if err == nil && shared <= 1 {
+		return filename
+	}
+
+	discriminator := messageID
+	if len(discriminator) > 8 {
+		discriminator = discriminator[:8]
+	}
+	if discriminator == "" {
+		return filename
+	}
+
+	ext := filepath.Ext(filename)
+	return fmt.Sprintf("%s_%s%s", strings.TrimSuffix(filename, ext), discriminator, ext)
+}
+
 // DownloadMedia looks up media from DB and downloads via whatsmeow.
 func (c *Client) DownloadMedia(messageID, chatJID string) (*DownloadMediaResult, error) {
-	var mediaType, filename, url string
+	var mediaType, filename, url, directPath string
 	var mediaKey, fileSHA256, fileEncSHA256 []byte
 	var fileLength uint64
 
-	row := c.Store.Messages.QueryRow("SELECT media_type, filename, url, media_key, file_sha256, file_enc_sha256, file_length FROM messages WHERE id = ? AND chat_jid = ?", messageID, chatJID)
-	if err := row.Scan(&mediaType, &filename, &url, &mediaKey, &fileSHA256, &fileEncSHA256, &fileLength); err != nil {
+	// direct_path is COALESCEd because rows written before that column existed
+	// hold NULL for it.
+	row := c.Store.Messages.QueryRow(`SELECT media_type, filename, url, COALESCE(direct_path, ''),
+		media_key, file_sha256, file_enc_sha256, file_length
+		FROM messages WHERE id = ? AND chat_jid = ?`, messageID, chatJID)
+	if err := row.Scan(&mediaType, &filename, &url, &directPath, &mediaKey, &fileSHA256, &fileEncSHA256, &fileLength); err != nil {
 		return &DownloadMediaResult{Success: false}, err
 	}
 
-	if mediaType == "" || url == "" || len(mediaKey) == 0 || len(fileSHA256) == 0 || len(fileEncSHA256) == 0 || fileLength == 0 {
-		return &DownloadMediaResult{Success: false}, fmt.Errorf("incomplete media info")
+	// A direct path is the locator; url is only a rendered form of it, and is
+	// empty on some messages. Either one will do, so long as one is there.
+	if directPath == "" {
+		directPath = extractDirectPathFromURL(url)
 	}
 
-	dp := extractDirectPathFromURL(url)
+	if mediaType == "" || directPath == "" || len(mediaKey) == 0 || len(fileSHA256) == 0 || len(fileEncSHA256) == 0 || fileLength == 0 {
+		return &DownloadMediaResult{Success: false}, fmt.Errorf("incomplete media info for %s: re-sync the chat to repopulate it", messageID)
+	}
+
 	dm := &downloadable{
 		URL:           url,
-		DirectPath:    dp,
+		DirectPath:    directPath,
 		MediaKey:      mediaKey,
 		FileLength:    fileLength,
 		FileSHA256:    fileSHA256,
@@ -343,6 +386,7 @@ func (c *Client) DownloadMedia(messageID, chatJID string) (*DownloadMediaResult,
 		return &DownloadMediaResult{Success: false}, err
 	}
 
+	filename = c.uniqueMediaFilename(messageID, chatJID, filename)
 	out := filepath.Join(outDir, filename)
 	if err := os.WriteFile(out, data, fs.FileMode(0644)); err != nil {
 		return &DownloadMediaResult{Success: false}, err

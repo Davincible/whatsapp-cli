@@ -74,6 +74,7 @@ func migrate(db *sql.DB) error {
 			media_type TEXT,
 			filename TEXT,
 			url TEXT,
+			direct_path TEXT,
 			media_key BLOB,
 			file_sha256 BLOB,
 			file_enc_sha256 BLOB,
@@ -141,6 +142,10 @@ func migrate(db *sql.DB) error {
 
 	// Add sender_name column if it doesn't exist (for existing databases)
 	_, _ = db.Exec(`ALTER TABLE messages ADD COLUMN sender_name TEXT`)
+
+	// Add direct_path for existing databases. Rows written before this column
+	// existed keep an empty value and fall back to deriving the path from url.
+	_, _ = db.Exec(`ALTER TABLE messages ADD COLUMN direct_path TEXT`)
 
 	return nil
 }

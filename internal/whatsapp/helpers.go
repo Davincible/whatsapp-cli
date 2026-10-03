@@ -64,37 +64,81 @@ func extractTextContent(m *waE2E.Message) string {
 	return ""
 }
 
+// mediaInfo is everything needed to download a media message after the fact.
+//
+// DirectPath is the locator whatsmeow actually downloads from: it resolves a
+// current CDN host and appends the path to it. URL is the fully rendered URL
+// WhatsApp sent, kept because it is all that rows written before direct_path
+// existed have, and because it is useful to see.
+type mediaInfo struct {
+	MediaType     string
+	Filename      string
+	URL           string
+	DirectPath    string
+	MediaKey      []byte
+	FileSHA256    []byte
+	FileEncSHA256 []byte
+	FileLength    uint64
+}
+
+// mediaAttachment is the subset of every waE2E media message this needs. Each
+// of ImageMessage, VideoMessage, AudioMessage, DocumentMessage and
+// StickerMessage satisfies it.
+type mediaAttachment interface {
+	GetURL() string
+	GetDirectPath() string
+	GetMediaKey() []byte
+	GetFileSHA256() []byte
+	GetFileEncSHA256() []byte
+	GetFileLength() uint64
+}
+
+func newMediaInfo(mediaType, filename string, att mediaAttachment) mediaInfo {
+	return mediaInfo{
+		MediaType:     mediaType,
+		Filename:      filename,
+		URL:           att.GetURL(),
+		DirectPath:    att.GetDirectPath(),
+		MediaKey:      att.GetMediaKey(),
+		FileSHA256:    att.GetFileSHA256(),
+		FileEncSHA256: att.GetFileEncSHA256(),
+		FileLength:    att.GetFileLength(),
+	}
+}
+
 // extractMediaInfo extracts media information from a WhatsApp message.
-func extractMediaInfo(m *waE2E.Message) (mediaType, filename, url string, mediaKey, fileSHA256, fileEncSHA256 []byte, fileLength uint64) {
+func extractMediaInfo(m *waE2E.Message) mediaInfo {
 	if m == nil {
-		return "", "", "", nil, nil, nil, 0
+		return mediaInfo{}
 	}
 
+	stamp := time.Now().Format("20060102_150405")
+
 	if img := m.GetImageMessage(); img != nil {
-		return "image", fmt.Sprintf("image_%s.jpg", time.Now().Format("20060102_150405")), img.GetURL(), img.GetMediaKey(), img.GetFileSHA256(), img.GetFileEncSHA256(), img.GetFileLength()
+		return newMediaInfo("image", fmt.Sprintf("image_%s.jpg", stamp), img)
 	}
 
 	if vid := m.GetVideoMessage(); vid != nil {
-		return "video", fmt.Sprintf("video_%s.mp4", time.Now().Format("20060102_150405")), vid.GetURL(), vid.GetMediaKey(), vid.GetFileSHA256(), vid.GetFileEncSHA256(), vid.GetFileLength()
+		return newMediaInfo("video", fmt.Sprintf("video_%s.mp4", stamp), vid)
 	}
 
 	if aud := m.GetAudioMessage(); aud != nil {
-		return "audio", fmt.Sprintf("audio_%s.ogg", time.Now().Format("20060102_150405")), aud.GetURL(), aud.GetMediaKey(), aud.GetFileSHA256(), aud.GetFileEncSHA256(), aud.GetFileLength()
+		return newMediaInfo("audio", fmt.Sprintf("audio_%s.ogg", stamp), aud)
 	}
 
 	if doc := m.GetDocumentMessage(); doc != nil {
 		name := doc.GetFileName()
 		if name == "" {
-			name = fmt.Sprintf("document_%s", time.Now().Format("20060102_150405"))
+			name = fmt.Sprintf("document_%s", stamp)
 		}
-		return "document", name, doc.GetURL(), doc.GetMediaKey(), doc.GetFileSHA256(), doc.GetFileEncSHA256(), doc.GetFileLength()
+		return newMediaInfo("document", name, doc)
 	}
 
 	if sticker := m.GetStickerMessage(); sticker != nil {
-		return "sticker", fmt.Sprintf("sticker_%s.webp", time.Now().Format("20060102_150405")), sticker.GetURL(), sticker.GetMediaKey(), sticker.GetFileSHA256(), sticker.GetFileEncSHA256(), sticker.GetFileLength()
+		return newMediaInfo("sticker", fmt.Sprintf("sticker_%s.webp", stamp), sticker)
 	}
 
-	return "", "", "", nil, nil, nil, 0
+	return mediaInfo{}
 }
 
 // classifyToWA converts media type string to WhatsApp MediaType.
@@ -113,14 +157,22 @@ func classifyToWA(t string) whatsmeow.MediaType {
 	}
 }
 
-// extractDirectPathFromURL extracts the direct path from a WhatsApp media URL.
-func extractDirectPathFromURL(url string) string {
-	parts := strings.SplitN(url, ".net/", 2)
-	if len(parts) < 2 {
-		return url
+// extractDirectPathFromURL recovers a direct path from a rendered WhatsApp
+// media URL. It is the fallback for rows stored before direct_path was
+// persisted; prefer the stored direct_path when there is one.
+//
+// The query string is part of the direct path and must be kept. WhatsApp signs
+// every path with oh= and oe= and the CDN answers 403 without them, and
+// whatsmeow's DownloadMediaWithPath appends its own parameters with "&", not
+// "?" — so a path stripped of its query yields a URL containing no "?" at all,
+// where "&hash=..." lands inside the path. That stripping is what broke every
+// media download once the CDN began enforcing the signature.
+func extractDirectPathFromURL(rawURL string) string {
+	_, path, found := strings.Cut(rawURL, ".net/")
+	if !found {
+		return rawURL
 	}
-	p := strings.SplitN(parts[1], "?", 2)[0]
-	return "/" + p
+	return "/" + path
 }
 
 // downloadable implements whatsmeow.DownloadableMessage interface.
