@@ -595,3 +595,52 @@ func classify(path string) (whatsmeow.MediaType, string) {
 func isOgg(path string) bool {
 	return strings.ToLower(filepath.Ext(path)) == ".ogg"
 }
+
+// ownRevoke builds the protocol message that deletes one of our own messages for
+// everyone. FromMe is always true: this CLI never revokes someone else's message.
+func ownRevoke(chat types.JID, messageID string) *waE2E.Message {
+	return &waE2E.Message{
+		ProtocolMessage: &waE2E.ProtocolMessage{
+			Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+			Key: &waCommon.MessageKey{
+				FromMe:    protoBool(true),
+				ID:        protoString(messageID),
+				RemoteJID: protoString(chat.String()),
+			},
+		},
+	}
+}
+
+// RevokeMessage deletes one of our own messages for everyone in the chat.
+//
+// WhatsApp's own clients allow this for about two days after sending. The
+// server acknowledges a revoke even for an unknown or too-old ID, so a returned
+// MessageID proves the revoke was sent, not that the recipient's copy changed.
+// Confirm by reading the chat back after a history sync, where a revoked
+// message is stored with media_type "revoked".
+func (c *Client) RevokeMessage(chatJID, messageID string) (*SendMessageResult, error) {
+	if !c.WA.IsConnected() {
+		return &SendMessageResult{Success: false, Message: "not connected"}, fmt.Errorf("not connected")
+	}
+	if messageID == "" {
+		return &SendMessageResult{Success: false, Message: "empty message id"}, fmt.Errorf("empty message id")
+	}
+
+	jid, err := parseRecipient(chatJID)
+	if err != nil {
+		return &SendMessageResult{Success: false, Message: "invalid chat JID"}, err
+	}
+
+	resp, err := c.WA.SendMessage(context.Background(), jid, ownRevoke(jid, messageID))
+	if err != nil {
+		return &SendMessageResult{Success: false, Message: err.Error()}, err
+	}
+
+	return &SendMessageResult{
+		Success:   true,
+		Message:   fmt.Sprintf("revoked %s", messageID),
+		MessageID: resp.ID,
+		ChatJID:   jid.String(),
+		Timestamp: resp.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+	}, nil
+}

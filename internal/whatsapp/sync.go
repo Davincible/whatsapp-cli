@@ -6,6 +6,7 @@ import (
 	"time"
 
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
+	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -123,10 +124,12 @@ func (c *Client) handleHistorySync(hs *events.HistorySync) HistorySyncResult {
 			}
 		}
 
+		c.Logger.Info("history sync conversation", "jid", responseChatJID, "stored_as", chatJID, "messages", len(conv.Messages), "sync_type", hs.Data.GetSyncType().String())
 		for _, m := range conv.Messages {
 			if m == nil || m.Message == nil {
 				continue
 			}
+			c.Logger.Debug("history sync message", "id", m.Message.GetKey().GetID(), "from_me", m.Message.GetKey().GetFromMe(), "stub", m.Message.GetMessageStubType().String(), "has_body", m.Message.Message != nil, "ts", m.Message.GetMessageTimestamp())
 
 			var text string
 			if m.Message.Message != nil {
@@ -136,6 +139,13 @@ func (c *Client) handleHistorySync(hs *events.HistorySync) HistorySyncResult {
 			var media mediaInfo
 			if m.Message.Message != nil {
 				media = extractMediaInfo(m.Message.Message)
+			}
+
+			// A message deleted for everyone comes back as a stub with no body.
+			// Store it as "revoked" so a read can confirm the delete landed.
+			if m.Message.GetMessageStubType() == waWeb.WebMessageInfo_REVOKE {
+				text = ""
+				media = mediaInfo{MediaType: "revoked"}
 			}
 
 			if text == "" && media.MediaType == "" {
