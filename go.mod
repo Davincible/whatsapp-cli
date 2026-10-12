@@ -3,12 +3,13 @@ module github.com/eddmann/whatsapp-cli
 go 1.26.0
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/mdp/qrterminal/v3 v3.2.1
+	github.com/ncruces/go-sqlite3 v0.35.6
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	go.mau.fi/whatsmeow v0.0.0-20260929112325-8b41cfe6d9c4
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -21,6 +22,8 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.9 // indirect
+	github.com/ncruces/go-sqlite3-wasm/v6 v6.3.35304 // indirect
+	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/petermattis/goid v0.0.0-20260820044319-269ab09b5261 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.27 // indirect
@@ -33,6 +36,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
+	lukechampine.com/adiantum v1.1.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )

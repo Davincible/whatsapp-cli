@@ -4,10 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/eddmann/whatsapp-cli/internal/sqlitedb"
 )
 
 // DB wraps the messages database connection.
@@ -17,13 +18,16 @@ type DB struct {
 
 // Open opens the messages database at the given path.
 func Open(dbPath string) (*DB, error) {
-	dir := dbPath[:strings.LastIndex(dbPath, "/")]
+	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create db dir: %w", err)
 	}
 
-	connStr := fmt.Sprintf("file:%s?_foreign_keys=on", dbPath)
-	mdb, err := sql.Open("sqlite3", connStr)
+	key, err := sqlitedb.StoreKey(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read store key: %w", err)
+	}
+	mdb, err := sqlitedb.Open(dbPath, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open messages db: %w", err)
 	}

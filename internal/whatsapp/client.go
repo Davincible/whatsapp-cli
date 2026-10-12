@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
 
+	"github.com/eddmann/whatsapp-cli/internal/sqlitedb"
 	"github.com/eddmann/whatsapp-cli/internal/store"
 )
 
@@ -86,10 +88,17 @@ func New(db *store.DB, baseDir string, verbose bool, logger *slog.Logger) (*Clie
 		return nil, fmt.Errorf("failed to create store dir: %w", err)
 	}
 
-	waDBURI := fmt.Sprintf("file:%s/session.db?_foreign_keys=on", baseDir)
-	container, err := sqlstore.New(context.Background(), "sqlite3", waDBURI, dbLog)
+	key, err := sqlitedb.StoreKey(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read store key: %w", err)
+	}
+	sessionDB, err := sqlitedb.Open(filepath.Join(baseDir, "session.db"), key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session db: %w", err)
+	}
+	container := sqlstore.NewWithDB(sessionDB, "sqlite3", dbLog)
+	if err := container.Upgrade(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to upgrade session db: %w", err)
 	}
 
 	deviceStore, err := container.GetFirstDevice(context.Background())
