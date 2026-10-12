@@ -26,7 +26,6 @@ import (
 
 const keyFile = "store.key"
 
-
 // Open opens (creating if needed) the encrypted database at path with key.
 // The key is applied by PRAGMA on every new connection, never put in the URI,
 // so it cannot leak through the filename or an error message.
