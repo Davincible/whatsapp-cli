@@ -41,7 +41,15 @@ var authStatusCmd = &cobra.Command{
 	RunE:  runAuthStatus,
 }
 
+var (
+	qrPage     string
+	openQRPage bool
+)
+
 func init() {
+	authLoginCmd.Flags().StringVar(&qrPage, "qr-page", "",
+		"also write the QR code to this HTML page, which reloads itself as the code changes, then shows the outcome")
+	authLoginCmd.Flags().BoolVar(&openQRPage, "open", false, "open the --qr-page in the default browser")
 	rootCmd.AddCommand(authCmd)
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
@@ -85,8 +93,32 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(os.Stderr, "Scan this QR code with WhatsApp (Settings → Linked Devices → Link a Device):")
 	fmt.Fprintln(os.Stderr, "")
 
-	if err := client.ConnectWithQR(ctx); err != nil {
+	var onCode func(string) error
+	if qrPage != "" {
+		opened := false
+		onCode = func(code string) error {
+			if err := writeQRPage(qrPage, code); err != nil {
+				return err
+			}
+			if openQRPage && !opened {
+				opened = true
+				if err := openInBrowser(qrPage); err != nil {
+					OutputWarning("Could not open %s: %v", qrPage, err)
+				}
+			}
+			return nil
+		}
+	}
+
+	if err := client.ConnectWithQR(ctx, onCode); err != nil {
+		if qrPage != "" {
+			_ = writeStatusPage(qrPage, "Not connected", err.Error())
+		}
 		return fmt.Errorf("connection failed: %w", err)
+	}
+	if qrPage != "" {
+		_ = writeStatusPage(qrPage, "WhatsApp is connected",
+			"Davincible Studio is reading your recent chats from your phone. You can close this tab.")
 	}
 
 	fmt.Fprintln(os.Stderr, "")
@@ -128,32 +160,26 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create client: %w", err)
 	}
 
-	if !client.IsAuthenticated() {
-		if GetFormat() == FormatHuman {
-			fmt.Println("Already logged out")
+	if client.IsAuthenticated() {
+		// Connect briefly to unlink this device on WhatsApp's side
+		if err := client.Connect(); err == nil {
+			if err := client.Logout(); err != nil {
+				OutputWarning("Logout failed: %v; remove the device from WhatsApp, Linked devices, on the phone", err)
+			}
+		} else {
+			OutputWarning("Could not reach WhatsApp: %v; remove the device from WhatsApp, Linked devices, on the phone", err)
 		}
-		return nil
+		client.Disconnect()
 	}
 
-	// Connect briefly to logout properly
-	if err := client.Connect(); err == nil {
-		if err := client.Logout(); err != nil {
-			OutputWarning("Logout failed: %v", err)
-		}
+	// Remove the whole store: the session, the key, the message mirror and any
+	// downloads. What stays is on the phone.
+	db.CloseQuietly()
+	if err := os.RemoveAll(GetStoreDir()); err != nil {
+		return fmt.Errorf("failed to remove the store %s: %w", GetStoreDir(), err)
 	}
 
-	client.Disconnect()
-
-	// Remove session database
-	sessionPath := GetStoreDir() + "/session.db"
-	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
-		OutputWarning("Failed to remove session file: %v", err)
-	}
-
-	if GetFormat() == FormatHuman {
-		fmt.Println("Logged out")
-	}
-	return nil
+	return OutputResult(map[string]any{"logged_out": true}, "Logged out; this computer's WhatsApp store is deleted")
 }
 
 func runAuthStatus(cmd *cobra.Command, args []string) error {

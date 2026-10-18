@@ -2,10 +2,13 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
+	"go.mau.fi/whatsmeow"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -69,26 +72,45 @@ func (c *Client) signalSyncCompleteAfterSettleDelay() {
 	})
 }
 
-// ConnectWithQR connects to WhatsApp, displaying a QR code if needed.
-func (c *Client) ConnectWithQR(ctx context.Context) error {
-	if c.WA.Store.ID == nil {
-		qrChan, _ := c.WA.GetQRChannel(ctx)
-		if err := c.WA.Connect(); err != nil {
-			return err
-		}
-
-		for evt := range qrChan {
-			if evt.Event == "code" {
-				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stderr)
-			} else if evt.Event == "success" {
-				break
-			}
-		}
-
-		return nil
+// ConnectWithQR connects to WhatsApp, displaying a QR code if needed. Each new
+// code is drawn on stderr and, when onCode is set, handed to it too (the QR page
+// for a desktop app). It returns once paired, or an error when the codes run
+// out or WhatsApp refuses the pairing.
+func (c *Client) ConnectWithQR(ctx context.Context, onCode func(code string) error) error {
+	if c.WA.Store.ID != nil {
+		return c.WA.Connect()
 	}
-
-	return c.WA.Connect()
+	qrChan, err := c.WA.GetQRChannel(ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.WA.Connect(); err != nil {
+		return err
+	}
+	for evt := range qrChan {
+		switch {
+		case evt.Event == "code":
+			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stderr)
+			if onCode != nil {
+				if err := onCode(evt.Code); err != nil {
+					return err
+				}
+			}
+		case evt == whatsmeow.QRChannelSuccess:
+			return nil
+		case evt == whatsmeow.QRChannelTimeout:
+			return errors.New("the QR code expired before it was scanned; run login again")
+		case evt == whatsmeow.QRChannelClientOutdated:
+			return errors.New("WhatsApp refused this client version (client outdated); update the whatsapp tool")
+		case evt == whatsmeow.QRChannelScannedWithoutMultidevice:
+			return errors.New("the phone that scanned has multi-device turned off; turn it on in WhatsApp and run login again")
+		case evt.Error != nil:
+			return fmt.Errorf("pairing failed: %w", evt.Error)
+		default:
+			return fmt.Errorf("pairing failed: %s", evt.Event)
+		}
+	}
+	return ctx.Err()
 }
 
 // Connect connects to WhatsApp without QR (requires existing session).

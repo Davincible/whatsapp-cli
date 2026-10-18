@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 var customStoreDir string
@@ -14,7 +15,9 @@ func SetStoreDir(dir string) {
 }
 
 // GetConfigDir returns the config directory path
-// Uses XDG_CONFIG_HOME if set, otherwise ~/.config/whatsapp-cli
+// Uses XDG_CONFIG_HOME if set, otherwise ~/.config/whatsapp-cli, and on Windows
+// %LOCALAPPDATA%\whatsapp-cli: never the roaming %APPDATA%, which a roaming
+// profile would copy, store and all, to every machine the user signs in to.
 func GetConfigDir() string {
 	if customStoreDir != "" {
 		return customStoreDir
@@ -22,6 +25,12 @@ func GetConfigDir() string {
 
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "whatsapp-cli")
+	}
+
+	if runtime.GOOS == "windows" {
+		if local, err := os.UserCacheDir(); err == nil {
+			return filepath.Join(local, "whatsapp-cli")
+		}
 	}
 
 	home, err := os.UserHomeDir()

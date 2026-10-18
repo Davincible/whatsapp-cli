@@ -13,7 +13,8 @@ import (
 var (
 	sendFile    string
 	sendCaption string
-	sendReplyTo string
+	sendReplyTo  string
+	sendTextFile string
 )
 
 var sendCmd = &cobra.Command{
@@ -29,6 +30,13 @@ Examples:
   whatsapp send 1234567890@s.whatsapp.net "Reply text" --reply-to ABC123`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		file, _ := cmd.Flags().GetString("file")
+		textFile, _ := cmd.Flags().GetString("text-file")
+		if textFile != "" {
+			if len(args) != 1 {
+				return fmt.Errorf("with --text-file, give only the jid")
+			}
+			return nil
+		}
 		if file != "" {
 			if len(args) < 1 {
 				return fmt.Errorf("requires at least 1 arg (jid)")
@@ -48,6 +56,8 @@ func init() {
 	sendCmd.Flags().StringVar(&sendFile, "file", "", "Send a file (image, video, audio, document)")
 	sendCmd.Flags().StringVar(&sendCaption, "caption", "", "Caption for media file")
 	sendCmd.Flags().StringVar(&sendReplyTo, "reply-to", "", "Message ID to reply to")
+	sendCmd.Flags().StringVar(&sendTextFile, "text-file", "",
+		"send the exact UTF-8 contents of this file as the text (no shell quoting in between)")
 }
 
 func runSend(cmd *cobra.Command, args []string) error {
@@ -55,6 +65,13 @@ func runSend(cmd *cobra.Command, args []string) error {
 	message := ""
 	if len(args) > 1 {
 		message = strings.Join(args[1:], " ")
+	}
+	if sendTextFile != "" {
+		text, err := readTextFile(sendTextFile)
+		if err != nil {
+			return err
+		}
+		message = text
 	}
 
 	return WithConnection(func(db *store.DB, client *whatsapp.Client) error {
